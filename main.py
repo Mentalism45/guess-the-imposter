@@ -1,7 +1,7 @@
 import os
+import random
 import discord
 from discord.ext import commands
-from discord import app_commands
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
@@ -11,19 +11,41 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Game Storage
 active_players = []
 host_id = None
+
+game_started = False
+current_word = None
+current_imposter = None
+
+with open("words.txt", "r", encoding="utf-8") as f:
+    WORDS = [word.strip() for word in f if word.strip()]
 
 
 class LobbyView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Join Game", emoji="✅", style=discord.ButtonStyle.success)
-    async def join_game(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(
+        label="Join Game",
+        emoji="✅",
+        style=discord.ButtonStyle.success
+    )
+    async def join_game(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
 
         global active_players
+        global game_started
+
+        if game_started:
+            await interaction.response.send_message(
+                "❌ Game already started.",
+                ephemeral=True
+            )
+            return
 
         if interaction.user.id not in active_players:
             active_players.append(interaction.user.id)
@@ -38,6 +60,7 @@ class LobbyView(discord.ui.View):
 
         for player_id in active_players:
             member = interaction.guild.get_member(player_id)
+
             if member:
                 player_list += f"👤 {member.display_name}\n"
 
@@ -55,8 +78,16 @@ class LobbyView(discord.ui.View):
             view=self
         )
 
-    @discord.ui.button(label="Leave Game", emoji="❌", style=discord.ButtonStyle.danger)
-    async def leave_game(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(
+        label="Leave Game",
+        emoji="❌",
+        style=discord.ButtonStyle.danger
+    )
+    async def leave_game(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
 
         global active_players
 
@@ -73,6 +104,7 @@ class LobbyView(discord.ui.View):
 
         for player_id in active_players:
             member = interaction.guild.get_member(player_id)
+
             if member:
                 player_list += f"👤 {member.display_name}\n"
 
@@ -90,10 +122,21 @@ class LobbyView(discord.ui.View):
             view=self
         )
 
-    @discord.ui.button(label="Start Game", emoji="🚀", style=discord.ButtonStyle.primary)
-    async def start_game(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(
+        label="Start Game",
+        emoji="🚀",
+        style=discord.ButtonStyle.primary
+    )
+    async def start_game(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
 
         global host_id
+        global game_started
+        global current_word
+        global current_imposter
 
         if interaction.user.id != host_id:
             await interaction.response.send_message(
@@ -109,19 +152,62 @@ class LobbyView(discord.ui.View):
             )
             return
 
+        game_started = True
+
+        current_word = random.choice(WORDS)
+        current_imposter = random.choice(active_players)
+
+        for player_id in active_players:
+
+            member = interaction.guild.get_member(player_id)
+
+            if member is None:
+                continue
+
+            try:
+
+                if player_id == current_imposter:
+
+                    await member.send(
+                        "🎭 YOU ARE THE IMPOSTER!\n\n"
+                        "You do NOT know the secret word.\n"
+                        "Watch the drawings and survive the vote."
+                    )
+
+                else:
+
+                    await member.send(
+                        f"🎨 SECRET WORD\n\n"
+                        f"{current_word}\n\n"
+                        "Do not reveal the word directly."
+                    )
+
+            except Exception:
+                pass
+
+        embed = discord.Embed(
+            title="🎨 Round 1 Started",
+            description=(
+                "📩 Check your DMs.\n\n"
+                "Roles have been assigned."
+            ),
+            color=discord.Color.green()
+        )
+
         await interaction.response.send_message(
-            f"🎉 Game starting with {len(active_players)} players!\n\nNext stage: Imposter Selection",
-            ephemeral=False
+            embed=embed
         )
 
 
 @bot.event
 async def on_ready():
+
     print(f"Logged in as {bot.user}")
 
     try:
         synced = await bot.tree.sync()
         print(f"Synced {len(synced)} slash commands")
+
     except Exception as e:
         print(e)
 
@@ -131,6 +217,7 @@ async def on_ready():
     description="Check if the bot is online"
 )
 async def ping(interaction: discord.Interaction):
+
     await interaction.response.send_message(
         "🏓 Pong! Guess The Imposter Bot is online."
     )
@@ -144,9 +231,11 @@ async def imposter(interaction: discord.Interaction):
 
     global active_players
     global host_id
+    global game_started
 
     active_players = []
     host_id = interaction.user.id
+    game_started = False
 
     embed = discord.Embed(
         title="🎭 Guess The Imposter",
@@ -171,3 +260,4 @@ async def imposter(interaction: discord.Interaction):
 
 
 bot.run(TOKEN)
+
